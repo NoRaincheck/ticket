@@ -1,0 +1,35 @@
+[project]
+name = "ticket"
+version = "0.1.0"
+description = "Stdlib-only graph-based issue tracker compatible with magic-beans"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "magic-beans>=0.7.0",
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+    "ty>=0.0.97",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "RUF"]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+
+[tool.ty]
