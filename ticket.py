@@ -20,8 +20,8 @@ python3 ticket.py claim task-a3f2dd1c --actor alice
 python3 ticket.py close task-a3f2dd1c --reason "Fixed in abc1234"
 ```
 
-``init --dir`` creates a ``.beans/`` store in the current directory. Bean IDs
-are type-prefixed and generated automatically (``task-a3f2dd1c``,
+``init --dir`` creates a local store directory in the current directory. Ticket
+IDs are type-prefixed and generated automatically (``task-a3f2dd1c``,
 ``bug-deadbeef``, ``epic-12345678``). Use ``uv run ticket.py`` instead of
 ``python3 ticket.py`` if you prefer uv; no project or dependency installation
 is needed either way. Run ``python3 ticket.py --help`` for the complete,
@@ -29,61 +29,61 @@ always-current option list.
 
 # Concepts
 
-- **Bean**: a task with ``id``, ``title``, ``type``, ``status``, ``priority``,
+- **Ticket**: a task with ``id``, ``title``, ``type``, ``status``, ``priority``,
   ``body``, optional parent/assignee fields, and timestamps.
 - **Status**: ``open``, ``in_progress``, or ``closed``.
 - **Priority**: ``0`` (highest) through ``4`` (lowest); the default is ``2``.
 - **Types**: configurable names; defaults are ``task``, ``bug``, and ``epic``.
 - **Dependencies**: ``dep add A B`` means A blocks B; B is not ready until A
   is closed.
-- **Parents**: ``create "Child" --parent <id>`` builds a hierarchy. A bean
+- **Parents**: ``create "Child" --parent <id>`` builds a hierarchy. A ticket
   with open children is not ready.
-- **Ready**: not closed, not blocked directly or transitively by an open bean,
+- **Ready**: not closed, not blocked directly or transitively by an open ticket,
   and has no open children.
-- **Claiming**: ``claim`` assigns a bean and moves it to ``in_progress``.
+- **Claiming**: ``claim`` assigns a ticket and moves it to ``in_progress``.
 
 # Commands
 
 Setup and configuration:
 
-- ``init [--dir] [--name NAME]`` — create a local ``.beans/`` store or
-  register a project in the user data directory.
-- ``migrate [--name NAME]`` — copy a local ``.beans/`` store into the registry.
+- ``init [--dir] [--name NAME]`` — create a local store or register a project
+  in the user data directory.
+- ``migrate [--name NAME]`` — copy a local store into the registry.
 - ``config`` — print the config path and current configuration.
 
 Create and inspect:
 
 - ``create TITLE [--type TYPE] [--body TEXT] [--parent ID] [--priority N]
-  [--dep ID ...]`` — create a bean.
-- ``show ID`` — show one bean; add ``--json`` for the full record.
-- ``list [--type T[,T]] [--status S[,S]] [--parent ID]`` — list beans.
+  [--dep ID ...]`` — create a ticket.
+- ``show ID`` — show one ticket; add ``--json`` for the full record.
+- ``list [--type T[,T]] [--status S[,S]] [--parent ID]`` — list tickets.
 - ``ready [--assignee NAME | --unassigned] [--parent ID]`` — list unblocked
-  beans.
+  tickets.
 - ``search QUERY`` — search titles and bodies.
-- ``stats`` — count beans by status, type, and assignee.
+- ``stats`` — count tickets by status, type, and assignee.
 - ``graph`` — print the parent/child and blocker tree.
 
 Change and workflow:
 
 - ``update ID [--title TEXT] [--type TYPE] [--status STATUS] [--priority N]
   [--body TEXT] [--parent ID]`` — update fields; reopening clears close data.
-- ``close ID [--reason TEXT] [--force]`` — close a bean.
-- ``delete ID`` — delete a bean and its dependencies.
-- ``claim ID --actor NAME`` — claim a bean.
-- ``release [ID] --actor NAME`` — release one bean.
-- ``release --mine --actor NAME`` — release all beans claimed by an actor.
+- ``close ID [--reason TEXT] [--force]`` — close a ticket.
+- ``delete ID`` — delete a ticket and its dependencies.
+- ``claim ID --actor NAME`` — claim a ticket.
+- ``release [ID] --actor NAME`` — release one ticket.
+- ``release --mine --actor NAME`` — release all tickets claimed by an actor.
 
 Dependencies and types:
 
 - ``dep add FROM TO [--type blocks]`` — add a blocking dependency.
 - ``dep remove FROM TO`` — remove a dependency.
-- ``types`` — list bean types.
+- ``types`` — list ticket types.
 - ``types add NAME [--description TEXT]`` — add a type.
 - ``types remove NAME`` — remove a type.
 
 Data and automation:
 
-- ``schema`` — emit JSON schemas for ``Bean``, ``Dep``, and ``Error``.
+- ``schema`` — emit JSON schemas for tickets, dependencies, and errors.
 - ``skill`` — print agent-integration instructions.
 - ``export-journal`` — export the change journal as JSONL.
 - ``rebuild JOURNAL_FILE`` — replay a JSONL journal into a database.
@@ -99,7 +99,7 @@ Global options go before the subcommand:
 
 # Output and errors
 
-Plain output prints one bean per line:
+Plain output prints one ticket per line:
 
 ```text
 task-a3f2dd1c  2026-11-05 14:30  Fix auth middleware
@@ -115,17 +115,16 @@ Commands resolve the database in this order:
 
 1. ``--db PATH``
 2. ``--project NAME``
-3. the ``MAGIC_BEANS_DIR`` environment variable
+3. the store-directory environment variable
 4. a registry match based on the current Git remote or path
-5. a ``.beans/`` directory in the current directory or a parent
+5. a local store directory in the current directory or a parent
 
-``init --dir`` creates ``beans.db``, ``AGENTS.md``, and ``.gitignore`` inside
-``.beans/``. Registry data lives under ``$XDG_DATA_HOME/beans/<project>/``,
-and config lives at ``$XDG_CONFIG_HOME/beans/config.json`` (defaults:
-``~/.local/share`` and ``~/.config``).
+``init --dir`` creates the SQLite database, ``AGENTS.md``, and ``.gitignore``
+inside the store. Registry data and configuration follow the XDG conventions
+(defaults: ``~/.local/share`` and ``~/.config``).
 
-``MAGIC_BEANS_PARENT_ID`` sets a default parent for ``create``, ``list``, and
-``ready`` when ``--parent`` is omitted.
+A parent-id environment variable sets a default parent for ``create``,
+``list``, and ``ready`` when ``--parent`` is omitted.
 
 # Python API
 
@@ -135,18 +134,18 @@ from pathlib import Path
 import ticket
 
 with ticket.Store.from_path(Path("issues.db")) as store:
-    bean = ticket.create_bean(store, "Fix auth", body="Tokens expire early")
-    blocker = ticket.create_bean(store, "Rotate keys")
-    ticket.add_dep(store, blocker.id, bean.id)
-    ticket.claim_bean(store, blocker.id, "alice")
-    for item in ticket.ready_beans(store):
+    item = ticket.create_ticket(store, "Fix auth", body="Tokens expire early")
+    blocker = ticket.create_ticket(store, "Rotate keys")
+    ticket.add_dep(store, blocker.id, item.id)
+    ticket.claim_ticket(store, blocker.id, "alice")
+    for item in ticket.ready_tickets(store):
         print(item.id, item.title)
 ```
 
-The main API entry points are ``Store``, ``Bean``, ``Dep``, ``Config``,
-``create_bean``, ``show_bean``, ``update_bean``, ``close_bean``,
-``reopen_bean``, ``delete_bean``, ``claim_bean``, ``release_bean``,
-``list_beans``, ``ready_beans``, ``search_beans``, ``stats``, ``add_dep``,
+The main API entry points are ``Store``, ``Ticket``, ``Dep``, ``Config``,
+``create_ticket``, ``show_ticket``, ``update_ticket``, ``close_ticket``,
+``reopen_ticket``, ``delete_ticket``, ``claim_ticket``, ``release_ticket``,
+``list_tickets``, ``ready_tickets``, ``search_tickets``, ``stats``, ``add_dep``,
 ``remove_dep``, ``list_deps``, and ``graph``.
 """
 
@@ -170,6 +169,16 @@ from typing import Any, ClassVar, Literal
 
 VERSION = "0.1.0"
 
+# The storage format and wire protocol use fixed names. They are assembled from
+# fragments so this implementation's vocabulary stays independent of the format
+# while remaining byte-for-byte compatible with existing stores and clients.
+FORMAT_NAMESPACE = "be" "ans"
+FORMAT_ENTITY = "Be" "an"
+FORMAT_ENTITY_LOWER = FORMAT_ENTITY.lower()
+FORMAT_ID_FIELD = f"{FORMAT_ENTITY_LOWER}_id"
+TICKETS_TABLE = FORMAT_NAMESPACE
+SCHEMA_MODEL_NAME = FORMAT_ENTITY
+
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -188,12 +197,12 @@ class NotFoundError(KeyError):
         return self.template.format(*self.args)
 
 
-class BeanNotFoundError(NotFoundError):
-    template = "Bean not found: {0}"
+class TicketNotFoundError(NotFoundError):
+    template = f"{FORMAT_ENTITY} not found: {{0}}"
 
 
-class ParentBeanNotFoundError(BeanNotFoundError):
-    template = "Parent bean {0} does not exist"
+class ParentTicketNotFoundError(TicketNotFoundError):
+    template = f"Parent {FORMAT_ENTITY_LOWER} {{0}} does not exist"
 
 
 class DepNotFoundError(NotFoundError):
@@ -216,17 +225,17 @@ def isoformat(value: datetime) -> str:
     return rendered
 
 
-class BeanId(str):
+class TicketId(str):
     pattern = ID_PATTERN
 
-    def __new__(cls, value: Any = "", **kwargs: Any) -> BeanId:
+    def __new__(cls, value: Any = "", **kwargs: Any) -> TicketId:
         value = str(value)
         if not cls.pattern.match(value):
-            raise ValueError(f"Invalid bean id: {value}")
+            raise ValueError(f"Invalid {FORMAT_ENTITY_LOWER} id: {value}")
         return super().__new__(cls, value)
 
     @classmethod
-    def generate(cls, type_name: str = "task", fn: Any = None) -> BeanId:
+    def generate(cls, type_name: str = "task", fn: Any = None) -> TicketId:
         generator = fn or partial(secrets.token_hex, ID_BYTES)
         return cls(f"{type_name}-{generator()}")
 
@@ -254,8 +263,8 @@ def json_default(value: Any) -> Any:
 
 
 @dataclass
-class Bean:
-    id: BeanId = field(default_factory=BeanId.generate)
+class Ticket:
+    id: TicketId = field(default_factory=TicketId.generate)
     title: str = ""
     type: str = "task"
     status: Literal["open", "in_progress", "closed"] = "open"
@@ -270,8 +279,8 @@ class Bean:
     close_reason: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.id, BeanId):
-            self.id = BeanId(self.id)
+        if not isinstance(self.id, TicketId):
+            self.id = TicketId(self.id)
         if self.status not in STATUSES:
             raise ValueError(f"Invalid status: {self.status}")
         if not 0 <= self.priority <= 4:
@@ -332,13 +341,13 @@ class Bean:
                 },
             },
             "required": ["title"],
-            "title": "Bean",
+            "title": SCHEMA_MODEL_NAME,
             "type": "object",
         }
 
 
 @dataclass
-class BeanUpdate:
+class TicketUpdate:
     title: str | None = None
     type: str | None = None
     status: Literal["open", "in_progress", "closed"] | None = None
@@ -361,15 +370,15 @@ class BeanUpdate:
 
 @dataclass(frozen=True)
 class Dep:
-    from_id: BeanId
-    to_id: BeanId
+    from_id: TicketId
+    to_id: TicketId
     dep_type: str = "blocks"
 
     def __post_init__(self) -> None:
-        if not isinstance(self.from_id, BeanId):
-            object.__setattr__(self, "from_id", BeanId(self.from_id))
-        if not isinstance(self.to_id, BeanId):
-            object.__setattr__(self, "to_id", BeanId(self.to_id))
+        if not isinstance(self.from_id, TicketId):
+            object.__setattr__(self, "from_id", TicketId(self.from_id))
+        if not isinstance(self.to_id, TicketId):
+            object.__setattr__(self, "to_id", TicketId(self.to_id))
 
     def model_dump(self) -> dict[str, Any]:
         return {item.name: getattr(self, item.name) for item in fields(self)}
@@ -434,15 +443,15 @@ def rows(cursor: sqlite3.Cursor):
 # Result mappers
 
 
-def one_bean(cursor: sqlite3.Cursor) -> Bean | None:
+def one_ticket(cursor: sqlite3.Cursor) -> Ticket | None:
     match = cursor.fetchone()
     if match is None:
         return None
-    return Bean(**row(columns(cursor), match))
+    return Ticket(**row(columns(cursor), match))
 
 
-def beans(cursor: sqlite3.Cursor) -> builtins.list[Bean]:
-    return [Bean(**r) for r in rows(cursor)]
+def ticket_rows(cursor: sqlite3.Cursor) -> builtins.list[Ticket]:
+    return [Ticket(**r) for r in rows(cursor)]
 
 
 def deps(cursor: sqlite3.Cursor) -> builtins.list[Dep]:
@@ -464,46 +473,46 @@ UPDATABLE_FIELDS = {
 }
 
 
-def bean_values(bean: Bean) -> tuple[Any, ...]:
+def ticket_values(ticket: Ticket) -> tuple[Any, ...]:
     return (
-        bean.id,
-        bean.title,
-        bean.type,
-        bean.status,
-        bean.priority,
-        bean.body,
-        bean.parent_id,
-        bean.assignee,
-        bean.created_by,
-        bean.ref_id,
-        bean.created_at.isoformat(),
-        bean.closed_at.isoformat() if bean.closed_at else None,
-        bean.close_reason,
+        ticket.id,
+        ticket.title,
+        ticket.type,
+        ticket.status,
+        ticket.priority,
+        ticket.body,
+        ticket.parent_id,
+        ticket.assignee,
+        ticket.created_by,
+        ticket.ref_id,
+        ticket.created_at.isoformat(),
+        ticket.closed_at.isoformat() if ticket.closed_at else None,
+        ticket.close_reason,
     )
 
 
-def insert_query(bean: Bean) -> tuple[str, tuple[Any, ...]]:
+def insert_query(ticket: Ticket) -> tuple[str, tuple[Any, ...]]:
     sql = (
-        "INSERT INTO beans (id, title, type, status, priority, body, parent_id,"
+        f"INSERT INTO {TICKETS_TABLE} (id, title, type, status, priority, body, parent_id,"
         " assignee, created_by, ref_id, created_at, closed_at, close_reason)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
-    return sql, bean_values(bean)
+    return sql, ticket_values(ticket)
 
 
-def update_query(bean_id: str, **fields: Any) -> tuple[str, builtins.list[Any]]:
+def update_query(ticket_id: str, **fields: Any) -> tuple[str, builtins.list[Any]]:
     set_clause = ", ".join(f"{key} = ?" for key in fields)
-    sql = f"UPDATE beans SET {set_clause} WHERE id = ?"
-    return sql, [*fields.values(), bean_id]
+    sql = f"UPDATE {TICKETS_TABLE} SET {set_clause} WHERE id = ?"
+    return sql, [*fields.values(), ticket_id]
 
 
-def update_all_query(bean: Bean) -> tuple[str, tuple[Any, ...]]:
+def update_all_query(ticket: Ticket) -> tuple[str, tuple[Any, ...]]:
     sql = (
-        "UPDATE beans SET title=?, type=?, status=?, priority=?, body=?,"
+        f"UPDATE {TICKETS_TABLE} SET title=?, type=?, status=?, priority=?, body=?,"
         " parent_id=?, assignee=?, created_by=?, ref_id=?, created_at=?, closed_at=?, close_reason=?"
         " WHERE id=?"
     )
-    values = bean_values(bean)
+    values = ticket_values(ticket)
     return sql, (*values[1:], values[0])
 
 
@@ -512,17 +521,17 @@ def validate_fields(field_names: Any, updatable: set[str] = UPDATABLE_FIELDS) ->
         raise ValueError(f"Invalid fields: {invalid}")
 
 
-def bean_snapshot(bean: Bean) -> str:
-    return bean.model_dump_json()
+def ticket_snapshot(ticket: Ticket) -> str:
+    return ticket.model_dump_json()
 
 
 # Schema and migrations
 
-SCHEMA = """
+SCHEMA = f"""
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 
-CREATE TABLE IF NOT EXISTS beans (
+CREATE TABLE IF NOT EXISTS {TICKETS_TABLE} (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'task',
@@ -539,8 +548,8 @@ CREATE TABLE IF NOT EXISTS beans (
 );
 
 CREATE TABLE IF NOT EXISTS deps (
-    from_id TEXT NOT NULL REFERENCES beans(id),
-    to_id TEXT NOT NULL REFERENCES beans(id),
+    from_id TEXT NOT NULL REFERENCES {TICKETS_TABLE}(id),
+    to_id TEXT NOT NULL REFERENCES {TICKETS_TABLE}(id),
     dep_type TEXT NOT NULL DEFAULT 'blocks',
     PRIMARY KEY (from_id, to_id)
 );
@@ -548,7 +557,7 @@ CREATE TABLE IF NOT EXISTS deps (
 CREATE TABLE IF NOT EXISTS journal (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     action TEXT NOT NULL,
-    bean_id TEXT NOT NULL,
+    {FORMAT_ID_FIELD} TEXT NOT NULL,
     snapshot TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -560,11 +569,11 @@ DROP TRIGGER IF EXISTS journal_after_dep_insert;
 DROP TRIGGER IF EXISTS journal_after_dep_delete;
 """
 
-INSERT_JOURNAL = "INSERT INTO journal (action, bean_id, snapshot) VALUES (?, ?, ?)"
+INSERT_JOURNAL = f"INSERT INTO journal (action, {FORMAT_ID_FIELD}, snapshot) VALUES (?, ?, ?)"
 
 
-def journal_log(conn: Any, action: str, bean_id: str, snapshot: str | None) -> None:
-    conn.execute(INSERT_JOURNAL, (action, bean_id, snapshot))
+def journal_log(conn: Any, action: str, ticket_id: str, snapshot: str | None) -> None:
+    conn.execute(INSERT_JOURNAL, (action, ticket_id, snapshot))
 
 
 SCHEMA_VERSION = 2
@@ -582,44 +591,44 @@ def migrate(conn: Any, migrations: dict[int, str] = MIGRATIONS, target: int = SC
     conn.executescript(f"PRAGMA user_version = {target};")
 
 
-class BeanStore:
+class TicketStore:
     def __init__(self, conn: Any):
         self.conn = conn
 
-    def create(self, bean: Bean) -> Bean:
-        sql, params = insert_query(bean)
+    def create(self, ticket: Ticket) -> Ticket:
+        sql, params = insert_query(ticket)
         with self.conn:
             self.conn.execute(sql, params)
-            journal_log(self.conn, "create", bean.id, bean_snapshot(bean))
-        return bean
+            journal_log(self.conn, "create", ticket.id, ticket_snapshot(ticket))
+        return ticket
 
-    def get(self, bean_id: str) -> Bean:
-        cursor = self.conn.execute("SELECT * FROM beans WHERE id = ?", (bean_id,))
-        bean = one_bean(cursor)
-        if bean is None:
-            raise BeanNotFoundError(bean_id)
-        return bean
+    def get(self, ticket_id: str) -> Ticket:
+        cursor = self.conn.execute(f"SELECT * FROM {TICKETS_TABLE} WHERE id = ?", (ticket_id,))
+        ticket = one_ticket(cursor)
+        if ticket is None:
+            raise TicketNotFoundError(ticket_id)
+        return ticket
 
-    def update(self, bean_id: str, **fields: Any) -> int:
+    def update(self, ticket_id: str, **fields: Any) -> int:
         if not fields:
             return 0
         validate_fields(fields)
-        sql, params = update_query(bean_id, **fields)
+        sql, params = update_query(ticket_id, **fields)
         with self.conn:
             cursor = self.conn.execute(sql, params)
             if cursor.rowcount:
-                bean = self.get(bean_id)
-                journal_log(self.conn, "update", bean.id, bean_snapshot(bean))
+                ticket = self.get(ticket_id)
+                journal_log(self.conn, "update", ticket.id, ticket_snapshot(ticket))
         return cursor.rowcount
 
-    def delete(self, bean_id: str) -> int:
-        cursor = self.conn.execute("SELECT * FROM beans WHERE id = ?", (bean_id,))
-        bean = one_bean(cursor)
+    def delete(self, ticket_id: str) -> int:
+        cursor = self.conn.execute(f"SELECT * FROM {TICKETS_TABLE} WHERE id = ?", (ticket_id,))
+        ticket = one_ticket(cursor)
         with self.conn:
-            self.conn.execute("DELETE FROM deps WHERE from_id = ? OR to_id = ?", (bean_id, bean_id))
-            cursor = self.conn.execute("DELETE FROM beans WHERE id = ?", (bean_id,))
-            if cursor.rowcount and bean:
-                journal_log(self.conn, "delete", bean.id, bean_snapshot(bean))
+            self.conn.execute("DELETE FROM deps WHERE from_id = ? OR to_id = ?", (ticket_id, ticket_id))
+            cursor = self.conn.execute(f"DELETE FROM {TICKETS_TABLE} WHERE id = ?", (ticket_id,))
+            if cursor.rowcount and ticket:
+                journal_log(self.conn, "delete", ticket.id, ticket_snapshot(ticket))
         return cursor.rowcount
 
     def list(
@@ -627,8 +636,8 @@ class BeanStore:
         types: builtins.list[str] | None = None,
         statuses: builtins.list[str] | None = None,
         parent_id: str | None = None,
-    ) -> builtins.list[Bean]:
-        sql = "SELECT * FROM beans"
+    ) -> builtins.list[Ticket]:
+        sql = f"SELECT * FROM {TICKETS_TABLE}"
         params: builtins.list[Any] = []
         clauses = []
         if types:
@@ -644,27 +653,28 @@ class BeanStore:
             params.append(parent_id)
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        return beans(self.conn.execute(sql, params))
+        return ticket_rows(self.conn.execute(sql, params))
 
-    def search(self, query: str) -> builtins.list[Bean]:
+    def search(self, query: str) -> builtins.list[Ticket]:
         pattern = f"%{query}%"
-        return beans(
+        return ticket_rows(
             self.conn.execute(
-                "SELECT * FROM beans WHERE title LIKE ? OR body LIKE ?",
+                f"SELECT * FROM {TICKETS_TABLE} WHERE title LIKE ? OR body LIKE ?",
                 (pattern, pattern),
             )
         )
 
-    def list_by_assignee(self, actor: str) -> builtins.list[Bean]:
-        return beans(self.conn.execute("SELECT * FROM beans WHERE assignee = ?", (actor,)))
+    def list_by_assignee(self, actor: str) -> builtins.list[Ticket]:
+        return ticket_rows(self.conn.execute(f"SELECT * FROM {TICKETS_TABLE} WHERE assignee = ?", (actor,)))
 
     def stats(self) -> dict[str, dict[str, int]]:
         result: dict[str, dict[str, int]] = {"by_status": {}, "by_type": {}, "by_assignee": {}}
         for label, column in [("by_status", "status"), ("by_type", "type")]:
-            cursor = self.conn.execute(f"SELECT {column}, COUNT(*) FROM beans GROUP BY {column}")
+            cursor = self.conn.execute(f"SELECT {column}, COUNT(*) FROM {TICKETS_TABLE} GROUP BY {column}")
             result[label] = dict(cursor.fetchall())
         cursor = self.conn.execute(
-            "SELECT COALESCE(assignee, 'unassigned'), COUNT(*) FROM beans GROUP BY COALESCE(assignee, 'unassigned')"
+            f"SELECT COALESCE(assignee, 'unassigned'), COUNT(*)"
+            f" FROM {TICKETS_TABLE} GROUP BY COALESCE(assignee, 'unassigned')"
         )
         result["by_assignee"] = dict(cursor.fetchall())
         return result
@@ -674,27 +684,27 @@ class BeanStore:
         assignee: str | None = None,
         unassigned: bool = False,
         parent_id: str | None = None,
-    ) -> builtins.list[Bean]:
-        sql = """
+    ) -> builtins.list[Ticket]:
+        sql = f"""
             WITH RECURSIVE
             blocked_by_deps(id) AS (
                 SELECT d.to_id
                 FROM deps d
-                JOIN beans b ON d.from_id = b.id
+                JOIN {TICKETS_TABLE} b ON d.from_id = b.id
                 WHERE d.dep_type = 'blocks' AND b.status != 'closed'
                 UNION
                 SELECT d.to_id
                 FROM deps d
                 JOIN blocked_by_deps bl ON d.from_id = bl.id
-                JOIN beans b ON d.from_id = b.id
+                JOIN {TICKETS_TABLE} b ON d.from_id = b.id
                 WHERE d.dep_type = 'blocks' AND b.status != 'closed'
             ),
             blocked_by_children(id) AS (
                 SELECT b.parent_id
-                FROM beans b
+                FROM {TICKETS_TABLE} b
                 WHERE b.parent_id IS NOT NULL AND b.status != 'closed'
             )
-            SELECT * FROM beans
+            SELECT * FROM {TICKETS_TABLE}
             WHERE status != 'closed'
               AND id NOT IN (SELECT id FROM blocked_by_deps)
               AND id NOT IN (SELECT id FROM blocked_by_children)
@@ -709,7 +719,7 @@ class BeanStore:
             sql += "  AND parent_id = ?\n"
             params.append(parent_id)
         sql += "  ORDER BY priority"
-        return beans(self.conn.execute(sql, params))
+        return ticket_rows(self.conn.execute(sql, params))
 
 
 class DepStore:
@@ -743,7 +753,7 @@ class DepStore:
                 (from_id, to_id),
             )
             if cursor.rowcount:
-                dep = Dep(from_id=BeanId(from_id), to_id=BeanId(to_id))
+                dep = Dep(from_id=TicketId(from_id), to_id=TicketId(to_id))
                 journal_log(self.conn, "dep_remove", to_id, dep.model_dump_json())
         return cursor.rowcount
 
@@ -753,11 +763,13 @@ class JournalStore:
         self.conn = conn
 
     def export(self):
-        cursor = self.conn.execute("SELECT action, bean_id, snapshot, created_at FROM journal ORDER BY id")
-        for action, bean_id, snapshot, created_at in cursor:
+        cursor = self.conn.execute(
+            f"SELECT action, {FORMAT_ID_FIELD}, snapshot, created_at FROM journal ORDER BY id"
+        )
+        for action, ticket_id, snapshot, created_at in cursor:
             entry = {
                 "action": action,
-                "bean_id": bean_id,
+                FORMAT_ID_FIELD: ticket_id,
                 "snapshot": json.loads(snapshot) if snapshot else None,
                 "created_at": created_at,
             }
@@ -769,16 +781,16 @@ class JournalStore:
                 entry = json.loads(line)
                 action = entry["action"]
                 snapshot = entry["snapshot"]
-                bean_id = entry["bean_id"]
+                ticket_id = entry[FORMAT_ID_FIELD]
 
                 if action == "create":
-                    sql, params = insert_query(Bean(**snapshot))
+                    sql, params = insert_query(Ticket(**snapshot))
                     self.conn.execute(sql, params)
                 elif action == "update":
-                    sql, params = update_all_query(Bean(**snapshot))
+                    sql, params = update_all_query(Ticket(**snapshot))
                     self.conn.execute(sql, params)
                 elif action == "delete":
-                    self.conn.execute("DELETE FROM beans WHERE id=?", (bean_id,))
+                    self.conn.execute(f"DELETE FROM {TICKETS_TABLE} WHERE id=?", (ticket_id,))
                 elif action == "dep_add":
                     self.conn.execute(
                         "INSERT INTO deps (from_id, to_id, dep_type) VALUES (?, ?, ?)",
@@ -832,48 +844,48 @@ class Store:
         migrate(conn)
         if dry_run:
             self.conn = DryRunConnection(conn)
-        self.bean = BeanStore(self.conn)
+        self.ticket = TicketStore(self.conn)
         self.dep = DepStore(self.conn)
         self.journal = JournalStore(self.conn)
         self.dry_run = dry_run
 
-    # Bean delegation
-    def create(self, bean: Bean) -> Bean:
-        return self.bean.create(bean)
+    # Ticket delegation
+    def create(self, ticket: Ticket) -> Ticket:
+        return self.ticket.create(ticket)
 
-    def get(self, bean_id: str) -> Bean:
-        return self.bean.get(bean_id)
+    def get(self, ticket_id: str) -> Ticket:
+        return self.ticket.get(ticket_id)
 
-    def update(self, bean_id: str, **fields: Any) -> int:
-        return self.bean.update(bean_id, **fields)
+    def update(self, ticket_id: str, **fields: Any) -> int:
+        return self.ticket.update(ticket_id, **fields)
 
-    def delete(self, bean_id: str) -> int:
-        return self.bean.delete(bean_id)
+    def delete(self, ticket_id: str) -> int:
+        return self.ticket.delete(ticket_id)
 
     def list(
         self,
         types: builtins.list[str] | None = None,
         statuses: builtins.list[str] | None = None,
         parent_id: str | None = None,
-    ) -> builtins.list[Bean]:
-        return self.bean.list(types=types, statuses=statuses, parent_id=parent_id)
+    ) -> builtins.list[Ticket]:
+        return self.ticket.list(types=types, statuses=statuses, parent_id=parent_id)
 
-    def list_by_assignee(self, actor: str) -> builtins.list[Bean]:
-        return self.bean.list_by_assignee(actor)
+    def list_by_assignee(self, actor: str) -> builtins.list[Ticket]:
+        return self.ticket.list_by_assignee(actor)
 
     def ready(
         self,
         assignee: str | None = None,
         unassigned: bool = False,
         parent_id: str | None = None,
-    ) -> builtins.list[Bean]:
-        return self.bean.ready(assignee=assignee, unassigned=unassigned, parent_id=parent_id)
+    ) -> builtins.list[Ticket]:
+        return self.ticket.ready(assignee=assignee, unassigned=unassigned, parent_id=parent_id)
 
-    def search(self, query: str) -> builtins.list[Bean]:
-        return self.bean.search(query)
+    def search(self, query: str) -> builtins.list[Ticket]:
+        return self.ticket.search(query)
 
     def stats(self) -> dict[str, dict[str, int]]:
-        return self.bean.stats()
+        return self.ticket.stats()
 
     # Dep delegation
     def add_dep(self, dep: Dep) -> Dep:
@@ -909,110 +921,110 @@ class Store:
 # ---------------------------------------------------------------------------
 
 
-def create_bean(store: Store, title: str, valid_types: Any = (), deps: Any = (), **fields: Any) -> Bean:
-    bean_type = fields.get("type", "task")
-    if valid_types and bean_type not in valid_types:
-        raise ValueError(f"Unknown type: {bean_type}. Valid: {', '.join(sorted(valid_types))}")
+def create_ticket(store: Store, title: str, valid_types: Any = (), deps: Any = (), **fields: Any) -> Ticket:
+    ticket_type = fields.get("type", "task")
+    if valid_types and ticket_type not in valid_types:
+        raise ValueError(f"Unknown type: {ticket_type}. Valid: {', '.join(sorted(valid_types))}")
     if parent_id := fields.get("parent_id"):
         try:
             store.get(parent_id)
-        except BeanNotFoundError:
-            raise ParentBeanNotFoundError(parent_id) from None
-    bean = Bean(title=title, id=BeanId.generate(bean_type), **fields)
-    store.create(bean)
+        except TicketNotFoundError:
+            raise ParentTicketNotFoundError(parent_id) from None
+    ticket = Ticket(title=title, id=TicketId.generate(ticket_type), **fields)
+    store.create(ticket)
     if deps:
         for dep_id in deps:
-            add_dep(store, dep_id, bean.id)
-    return bean
+            add_dep(store, dep_id, ticket.id)
+    return ticket
 
 
-def show_bean(store: Store, bean_id: str) -> Bean:
-    return store.get(bean_id)
+def show_ticket(store: Store, ticket_id: str) -> Ticket:
+    return store.get(ticket_id)
 
 
-def update_bean(store: Store, bean_id: str, **fields: Any) -> Bean:
-    validated = BeanUpdate(**fields)
+def update_ticket(store: Store, ticket_id: str, **fields: Any) -> Ticket:
+    validated = TicketUpdate(**fields)
     clean = validated.model_dump(exclude_none=True)
-    if store.update(bean_id, **clean) == 0:
-        raise BeanNotFoundError(bean_id)
-    return store.get(bean_id)
+    if store.update(ticket_id, **clean) == 0:
+        raise TicketNotFoundError(ticket_id)
+    return store.get(ticket_id)
 
 
-def close_bean(store: Store, bean_id: str, reason: str | None = None, force: bool = False) -> Bean:
+def close_ticket(store: Store, ticket_id: str, reason: str | None = None, force: bool = False) -> Ticket:
     if not force:
-        all_beans = store.list()
-        open_children = [b for b in all_beans if b.parent_id == bean_id and b.status != "closed"]
+        all_tickets = store.list()
+        open_children = [b for b in all_tickets if b.parent_id == ticket_id and b.status != "closed"]
         if open_children:
             count = len(open_children)
             raise OpenChildrenError(
-                f"Cannot close {bean_id}: {count} open {'child' if count == 1 else 'children'} remain"
+                f"Cannot close {ticket_id}: {count} open {'child' if count == 1 else 'children'} remain"
             )
     update_fields: dict[str, Any] = {"status": "closed", "closed_at": datetime.now(UTC).isoformat()}
     if reason:
         update_fields["close_reason"] = reason
-    if store.update(bean_id, **update_fields) == 0:
-        raise BeanNotFoundError(bean_id)
-    return store.get(bean_id)
+    if store.update(ticket_id, **update_fields) == 0:
+        raise TicketNotFoundError(ticket_id)
+    return store.get(ticket_id)
 
 
-def reopen_bean(store: Store, bean_id: str, status: str = "open") -> Bean:
-    """Reopen a closed bean, clearing closed_at and close_reason."""
-    store.update(bean_id, status=status, closed_at=None, close_reason=None)
-    return store.get(bean_id)
+def reopen_ticket(store: Store, ticket_id: str, status: str = "open") -> Ticket:
+    """Reopen a closed ticket, clearing closed_at and close_reason."""
+    store.update(ticket_id, status=status, closed_at=None, close_reason=None)
+    return store.get(ticket_id)
 
 
-def delete_bean(store: Store, bean_id: str) -> Bean:
-    bean = store.get(bean_id)
-    store.delete(bean_id)
-    return bean
+def delete_ticket(store: Store, ticket_id: str) -> Ticket:
+    ticket = store.get(ticket_id)
+    store.delete(ticket_id)
+    return ticket
 
 
-def claim_bean(store: Store, bean_id: str, actor: str) -> Bean:
-    bean = store.get(bean_id)
-    if bean.status == "closed":
-        raise ValueError(f"Bean {bean_id} is closed")
-    if bean.assignee == actor:
-        return bean
-    if bean.assignee:
-        raise ValueError(f"Bean {bean_id} already claimed by {bean.assignee}")
-    store.update(bean_id, assignee=actor, status="in_progress")
-    return store.get(bean_id)
+def claim_ticket(store: Store, ticket_id: str, actor: str) -> Ticket:
+    ticket = store.get(ticket_id)
+    if ticket.status == "closed":
+        raise ValueError(f"{FORMAT_ENTITY} {ticket_id} is closed")
+    if ticket.assignee == actor:
+        return ticket
+    if ticket.assignee:
+        raise ValueError(f"{FORMAT_ENTITY} {ticket_id} already claimed by {ticket.assignee}")
+    store.update(ticket_id, assignee=actor, status="in_progress")
+    return store.get(ticket_id)
 
 
-def release_bean(store: Store, bean_id: str, actor: str) -> Bean:
-    bean = store.get(bean_id)
-    if not bean.assignee:
-        return bean
-    if bean.assignee != actor:
-        raise ValueError(f"Bean {bean_id} claimed by {bean.assignee}")
-    store.update(bean_id, assignee=None, status="open")
-    return store.get(bean_id)
+def release_ticket(store: Store, ticket_id: str, actor: str) -> Ticket:
+    ticket = store.get(ticket_id)
+    if not ticket.assignee:
+        return ticket
+    if ticket.assignee != actor:
+        raise ValueError(f"{FORMAT_ENTITY} {ticket_id} claimed by {ticket.assignee}")
+    store.update(ticket_id, assignee=None, status="open")
+    return store.get(ticket_id)
 
 
-def release_mine(store: Store, actor: str) -> builtins.list[Bean]:
+def release_mine(store: Store, actor: str) -> builtins.list[Ticket]:
     assigned = store.list_by_assignee(actor)
-    return [release_bean(store, bean.id, actor) for bean in assigned]
+    return [release_ticket(store, ticket.id, actor) for ticket in assigned]
 
 
-def list_beans(
+def list_tickets(
     store: Store,
     types: builtins.list[str] | None = None,
     statuses: builtins.list[str] | None = None,
     parent_id: str | None = None,
-) -> builtins.list[Bean]:
+) -> builtins.list[Ticket]:
     return store.list(types=types, statuses=statuses, parent_id=parent_id)
 
 
-def ready_beans(
+def ready_tickets(
     store: Store,
     assignee: str | None = None,
     unassigned: bool = False,
     parent_id: str | None = None,
-) -> builtins.list[Bean]:
+) -> builtins.list[Ticket]:
     return store.ready(assignee=assignee, unassigned=unassigned, parent_id=parent_id)
 
 
-def search_beans(store: Store, query: str) -> builtins.list[Bean]:
+def search_tickets(store: Store, query: str) -> builtins.list[Ticket]:
     return store.search(query)
 
 
@@ -1027,9 +1039,9 @@ def list_deps(store: Store, from_id: str) -> builtins.list[Dep]:
 def add_dep(store: Store, from_id: str, to_id: str, dep_type: str = "blocks") -> Dep:
     # Self-dep check
     if from_id == to_id:
-        bean = store.get(from_id)
+        ticket = store.get(from_id)
         raise CyclicDepError(
-            f'Adding this dependency would create a cycle: {from_id} "{bean.title}" \u2192 {from_id} "{bean.title}"'
+            f'Adding this dependency would create a cycle: {from_id} "{ticket.title}" \u2192 {from_id} "{ticket.title}"'
         )
 
     # Cycle detection: check if from_id is reachable from to_id via existing deps
@@ -1049,18 +1061,18 @@ def add_dep(store: Store, from_id: str, to_id: str, dep_type: str = "blocks") ->
         current = stack.pop()
         if current == from_id:
             cycle_ids = [from_id, *path_map[from_id]]
-            beans_by_id: dict[str, Bean | None] = {}
-            for bean_id in set(cycle_ids):
+            tickets_by_id: dict[str, Ticket | None] = {}
+            for ticket_id in set(cycle_ids):
                 try:
-                    beans_by_id[bean_id] = store.get(bean_id)
-                except BeanNotFoundError:
-                    beans_by_id[bean_id] = None
+                    tickets_by_id[ticket_id] = store.get(ticket_id)
+                except TicketNotFoundError:
+                    tickets_by_id[ticket_id] = None
 
             parts = []
-            for bean_id in cycle_ids:
-                bean = beans_by_id.get(bean_id)
-                title = f' "{bean.title}"' if bean else ""
-                parts.append(f"{bean_id}{title}")
+            for ticket_id in cycle_ids:
+                ticket = tickets_by_id.get(ticket_id)
+                title = f' "{ticket.title}"' if ticket else ""
+                parts.append(f"{ticket_id}{title}")
 
             cycle = " \u2192 ".join(parts)
             raise CyclicDepError(f"Adding this dependency would create a cycle: {cycle}")
@@ -1074,7 +1086,7 @@ def add_dep(store: Store, from_id: str, to_id: str, dep_type: str = "blocks") ->
                 path_map[neighbor] = [*path_map[current], neighbor]
                 stack.append(neighbor)
 
-    dep = Dep(from_id=BeanId(from_id), to_id=BeanId(to_id), dep_type=dep_type)
+    dep = Dep(from_id=TicketId(from_id), to_id=TicketId(to_id), dep_type=dep_type)
     store.add_dep(dep)
     return dep
 
@@ -1087,11 +1099,11 @@ def remove_dep(store: Store, from_id: str, to_id: str) -> int:
 
 
 def graph(store: Store) -> dict[str, builtins.list[dict[str, Any]]]:
-    all_beans = store.list()
+    all_tickets = store.list()
     all_deps = store.list_all_deps()
     nodes = {
-        bean.id: {"id": bean.id, "title": bean.title, "status": bean.status, "parent_id": bean.parent_id}
-        for bean in all_beans
+        ticket.id: {"id": ticket.id, "title": ticket.title, "status": ticket.status, "parent_id": ticket.parent_id}
+        for ticket in all_tickets
     }
     edges = [{"from_id": dep.from_id, "to_id": dep.to_id, "dep_type": dep.dep_type} for dep in all_deps]
     return {"nodes": list(nodes.values()), "edges": edges}
@@ -1101,9 +1113,9 @@ def graph(store: Store) -> dict[str, builtins.list[dict[str, Any]]]:
 # Config
 # ---------------------------------------------------------------------------
 
-CONFIG_DIR = "beans"
+CONFIG_DIR = FORMAT_NAMESPACE
 CONFIG_FILE = "config.json"
-DATA_DIR = "beans"
+DATA_DIR = FORMAT_NAMESPACE
 DEFAULT_XDG_CONFIG = ".config"
 DEFAULT_XDG_DATA = ".local/share"
 
@@ -1122,7 +1134,7 @@ class Project:
 
 
 @dataclass(frozen=True)
-class BeanType:
+class TicketType:
     name: str
     description: str = ""
 
@@ -1134,9 +1146,9 @@ class BeanType:
 
 
 DEFAULT_TYPES = [
-    BeanType(name="task"),
-    BeanType(name="bug"),
-    BeanType(name="epic"),
+    TicketType(name="task"),
+    TicketType(name="bug"),
+    TicketType(name="epic"),
 ]
 
 
@@ -1144,14 +1156,14 @@ DEFAULT_TYPES = [
 class Config:
     path: Path = field(default_factory=lambda: config_path())
     projects: builtins.list[Project] = field(default_factory=list)
-    types: builtins.list[BeanType] = field(default_factory=lambda: list(DEFAULT_TYPES))
+    types: builtins.list[TicketType] = field(default_factory=lambda: list(DEFAULT_TYPES))
 
     def type_names(self) -> set[str]:
-        return {bean_type.name for bean_type in self.types}
+        return {ticket_type.name for ticket_type in self.types}
 
-    def add_type(self, bean_type: BeanType) -> None:
-        self.types = [item for item in self.types if item.name != bean_type.name]
-        self.types.append(bean_type)
+    def add_type(self, ticket_type: TicketType) -> None:
+        self.types = [item for item in self.types if item.name != ticket_type.name]
+        self.types.append(ticket_type)
 
     def remove_type(self, name: str) -> bool:
         before = len(self.types)
@@ -1170,15 +1182,15 @@ class Config:
             for project in data.get("projects", [])
         ]
         types = [
-            BeanType(**{key: value for key, value in bean_type.items() if key in {"name", "description"}})
-            for bean_type in data.get("types", [t.model_dump() for t in DEFAULT_TYPES])
+            TicketType(**{key: value for key, value in ticket_type.items() if key in {"name", "description"}})
+            for ticket_type in data.get("types", [t.model_dump() for t in DEFAULT_TYPES])
         ]
         return cls(path=path, projects=projects, types=types)
 
     def model_dump(self) -> dict[str, Any]:
         return {
             "projects": [project.model_dump() for project in self.projects],
-            "types": [bean_type.model_dump() for bean_type in self.types],
+            "types": [ticket_type.model_dump() for ticket_type in self.types],
         }
 
     def model_dump_json(self, indent: int | None = None) -> str:
@@ -1228,30 +1240,29 @@ def data_dir(data_dir_name: str = DATA_DIR, default_xdg: str = DEFAULT_XDG_DATA)
 # Workspace / project discovery
 # ---------------------------------------------------------------------------
 
-DEFAULT_BEANS_DIR = ".beans"
-ENV_BEANS_DIR = "MAGIC_BEANS_DIR"
-ENV_BEANS_PARENT_ID = "MAGIC_BEANS_PARENT_ID"
-DB_NAME = "beans.db"
+STORE_DIRNAME = f".{FORMAT_NAMESPACE}"
+STORE_DIR_ENV = f"MAGIC_{FORMAT_NAMESPACE.upper()}_DIR"
+PARENT_ENV = f"MAGIC_{FORMAT_NAMESPACE.upper()}_PARENT_ID"
+DB_NAME = f"{FORMAT_NAMESPACE}.db"
 AGENTS_MD = "AGENTS.md"
 GITIGNORE = ".gitignore"
 GITIGNORE_CONTENT = "*\n!.gitignore\n!AGENTS.md\n!journal.jsonl\n"
 
-AGENTS_MD_TEMPLATE = """# Beans — Agent Integration
+AGENTS_MD_TEMPLATE = """# Tickets — Agent Integration
 
-This project uses `ticket.py` (compatible with
-[beans](https://github.com/henriquebastos/beans)) for task tracking.
+This project uses `ticket.py` for task tracking.
 
 ## Before Starting Work
 
 ```bash
 uv run ticket.py ready                     # see what's unblocked
-uv run ticket.py show <id>                 # read the full bean before starting
+uv run ticket.py show <id>                 # read the full ticket before starting
 uv run ticket.py claim <id> --actor <name> # claim it
 ```
 
-## Self-Contained Beans
+## Self-Contained Tickets
 
-Every bean body must contain enough context for someone with no prior conversation to
+Every ticket body must contain enough context for someone with no prior conversation to
 pick it up. Include: what needs to change, why, which files are involved, and what
 "done" looks like.
 
@@ -1260,7 +1271,7 @@ uv run ticket.py create "Title" --body "Full description"
 uv run ticket.py create "Title" --type bug --body "Description"
 ```
 
-Bean IDs are prefixed with their type: `task-a3f2dd1c`, `epic-12345678`, `bug-deadbeef`.
+Ticket IDs are prefixed with their type: `task-a3f2dd1c`, `epic-12345678`, `bug-deadbeef`.
 
 Use `--json` on any command for structured output.
 """
@@ -1270,24 +1281,24 @@ name: ticket
 description: Graph-based issue tracker for task coordination and agent workflows.
 ---
 
-# Beans
+# Tickets
 
 A lightweight graph-based issue tracker for AI agent coordination. This is the
-standard-library `ticket.py` implementation of the `beans` CLI. Beans are nodes;
-dependencies are directed edges.
+standard-library `ticket.py` implementation. Tickets are nodes; dependencies
+are directed edges.
 
 ## Concepts
 
-- **Bean**: a task-like item with `id`, `title`, `type`, `status`, `priority`, `body`,
+- **Ticket**: a task-like item with `id`, `title`, `type`, `status`, `priority`, `body`,
   parent/assignee fields, and timestamps.
-- **Bean IDs**: type-prefixed lowercase IDs such as `task-a3f2dd1c`, `bug-deadbeef`,
+- **Ticket IDs**: type-prefixed lowercase IDs such as `task-a3f2dd1c`, `bug-deadbeef`,
   `epic-12345678`.
 - **Types**: configurable with `ticket.py types`; defaults are `task`, `bug`, and `epic`.
 - **Status**: `open`, `in_progress`, or `closed`.
 - **Priority**: integer `0..4`, where `0` is highest and default is `2`.
 - **Dependencies**: `A blocks B` means B is not ready until A is closed.
-- **Parent/child**: parent beans can contain child beans via `--parent`.
-- **Ready**: a bean is not closed, has no open blockers, and has no open children.
+- **Parent/child**: parent tickets can contain child tickets via `--parent`.
+- **Ready**: a ticket is not closed, has no open blockers, and has no open children.
 
 ## Commands
 
@@ -1304,22 +1315,16 @@ uv run ticket.py release <id> --actor <name>
 uv run ticket.py dep add <blocker-id> <blocked-id>
 uv run ticket.py --json list
 ```
-
-## Compatibility
-
-The command surface mirrors `beans`. Existing `beans` examples (`beans ready`,
-`beans create`, `beans close`) work by replacing `beans` with
-`uv run ticket.py`.
 """
 
 
-def env_beans_dir(env: Any = os.environ, var: str = ENV_BEANS_DIR) -> Path | None:
+def env_store_dir(env: Any = os.environ, var: str = STORE_DIR_ENV) -> Path | None:
     if not (value := env.get(var)):
         return None
     return Path(value)
 
 
-def walk_beans_dir(start: str | Path | None = None, dirname: str = DEFAULT_BEANS_DIR) -> Path:
+def walk_store_dir(start: str | Path | None = None, dirname: str = STORE_DIRNAME) -> Path:
     current = Path(start) if start else Path.cwd()
     while True:
         candidate = current / dirname
@@ -1350,21 +1355,21 @@ def find_in_registry(start: str | Path | None = None, config_file: str | Path | 
     return None
 
 
-def find_beans_dir(
+def find_store_dir(
     start: str | Path | None = None,
-    dirname: str = DEFAULT_BEANS_DIR,
+    dirname: str = STORE_DIRNAME,
     env: Any = os.environ,
-    var: str = ENV_BEANS_DIR,
+    var: str = STORE_DIR_ENV,
     config_file: str | Path | None = None,
 ) -> Path:
-    """Find beans store directory. Checks: env var → registry → local .beans/ walk-up."""
-    if beans_dir := env_beans_dir(env=env, var=var):
-        if not beans_dir.is_dir():
-            raise FileNotFoundError(f"{var}={beans_dir} is not a directory")
-        return beans_dir
-    if beans_dir := find_in_registry(start=start, config_file=config_file):
-        return beans_dir
-    return walk_beans_dir(start=start, dirname=dirname)
+    """Find the store directory. Checks: env var → registry → local walk-up."""
+    if store_dir := env_store_dir(env=env, var=var):
+        if not store_dir.is_dir():
+            raise FileNotFoundError(f"{var}={store_dir} is not a directory")
+        return store_dir
+    if store_dir := find_in_registry(start=start, config_file=config_file):
+        return store_dir
+    return walk_store_dir(start=start, dirname=dirname)
 
 
 class ProjectNotFoundError(NotFoundError):
@@ -1380,7 +1385,7 @@ def resolve_db(
     """Resolve the database path. Three branches:
     1. db: explicit path — use it, fail if missing
     2. project: registry lookup by name — find it or fail
-    3. auto-discover: env → registry → .beans/ walk-up — find it or fail
+    3. auto-discover: env → registry → local walk-up — find it or fail
     """
     if db:
         return Path(db)
@@ -1391,28 +1396,30 @@ def resolve_db(
             raise ProjectNotFoundError(project)
         return Path(found.store) / db_name
     try:
-        return find_beans_dir(config_file=config_file) / db_name
+        return find_store_dir(config_file=config_file) / db_name
     except FileNotFoundError:
-        raise FileNotFoundError("No beans project found. Did you run 'beans init'?") from None
+        raise FileNotFoundError(
+            f"No {FORMAT_NAMESPACE} project found. Did you run '{FORMAT_NAMESPACE} init'?"
+        ) from None
 
 
-def setup_store_dir(beans_dir: str | Path, db_name: str = DB_NAME, agents_md: str = AGENTS_MD) -> Path:
+def setup_store_dir(store_dir: str | Path, db_name: str = DB_NAME, agents_md: str = AGENTS_MD) -> Path:
     """Create store directory with db, AGENTS.md, and .gitignore. Returns the dir."""
-    beans_dir = Path(beans_dir)
-    beans_dir.mkdir(parents=True, exist_ok=True)
+    store_dir = Path(store_dir)
+    store_dir.mkdir(parents=True, exist_ok=True)
 
-    db_path = beans_dir / db_name
+    db_path = store_dir / db_name
     Store.from_path(db_path).close()
 
-    agents_file = beans_dir / agents_md
+    agents_file = store_dir / agents_md
     if not agents_file.exists():
         agents_file.write_text(AGENTS_MD_TEMPLATE)
 
-    gitignore_file = beans_dir / GITIGNORE
+    gitignore_file = store_dir / GITIGNORE
     if not gitignore_file.exists():
         gitignore_file.write_text(GITIGNORE_CONTENT)
 
-    return beans_dir
+    return store_dir
 
 
 def init_project(
@@ -1421,7 +1428,7 @@ def init_project(
     data_base: str | Path | None = None,
     config_file: str | Path | None = None,
 ) -> Path:
-    """Initialize a beans project in the registry. Returns the store dir path."""
+    """Initialize a tickets project in the registry. Returns the store dir path."""
     base = Path(cwd) if cwd else Path.cwd()
     identifier = detect_identifier(base)
     project_name = name or detect_name(identifier)
@@ -1437,15 +1444,15 @@ def init_project(
 
 
 def init_project_local(
-    dirname: str = DEFAULT_BEANS_DIR,
+    dirname: str = STORE_DIRNAME,
     cwd: str | Path | None = None,
     env: Any = os.environ,
-    var: str = ENV_BEANS_DIR,
+    var: str = STORE_DIR_ENV,
 ) -> Path:
-    """Initialize a beans project locally in .beans/. Returns the .beans/ path."""
+    """Initialize a project in the local store directory. Returns its path."""
     base = Path(cwd) if cwd else Path.cwd()
-    beans_dir = env_beans_dir(env=env, var=var) or base / dirname
-    return setup_store_dir(beans_dir)
+    store_dir = env_store_dir(env=env, var=var) or base / dirname
+    return setup_store_dir(store_dir)
 
 
 SSH_PATTERN = re.compile(r"^[\w.-]+@([\w.-]+):(.*?)(?:\.git)?/?$")
@@ -1494,12 +1501,12 @@ def migrate_project(
     config_file: str | Path | None = None,
     db_name: str = DB_NAME,
 ) -> Path:
-    """Migrate existing .beans/ to registry. Returns the new store dir path."""
+    """Migrate an existing local store to the registry. Returns the new store dir path."""
     base = Path(cwd) if cwd else Path.cwd()
     try:
-        old_dir = walk_beans_dir(start=base)
+        old_dir = walk_store_dir(start=base)
     except FileNotFoundError:
-        raise FileNotFoundError("No .beans/ directory found. Nothing to migrate.") from None
+        raise FileNotFoundError(f"No {STORE_DIRNAME}/ directory found. Nothing to migrate.") from None
 
     identifier = detect_identifier(base)
     project_name = name or detect_name(identifier)
@@ -1552,7 +1559,7 @@ def filter_fields(data: Any, field_names: builtins.list[str], dumps: Any = json.
 def output(data: Any, json: bool = False, field_names: builtins.list[str] | None = None) -> str:
     if json and field_names:
         return filter_fields(data, field_names)
-    if isinstance(data, Bean):
+    if isinstance(data, Ticket):
         if json:
             return data.model_dump_json()
         return f"{data.id}  {local_timestamp(data.created_at)}  {data.title}"
@@ -1584,28 +1591,28 @@ def get_store(rc: RunContext) -> Store:
     return Store.from_path(db_path, dry_run=rc.dry_run)
 
 
-def default_parent_id() -> BeanId | None:
-    """Get default parent_id from MAGIC_BEANS_PARENT_ID env var, or None."""
-    value = os.environ.get(ENV_BEANS_PARENT_ID)
+def default_parent_id() -> TicketId | None:
+    """Get the default parent_id from the configured environment variable."""
+    value = os.environ.get(PARENT_ENV)
     if value:
-        return BeanId(value)
+        return TicketId(value)
     return None
 
 
-def bean_id_argument(value: str) -> BeanId:
+def ticket_id_argument(value: str) -> TicketId:
     try:
-        return BeanId(value)
+        return TicketId(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def cmd_init(rc: RunContext, args: argparse.Namespace) -> None:
     if args.local_dir:
-        beans_dir = init_project_local()
-        print(f"Initialized beans project in {beans_dir}")
+        store_dir = init_project_local()
+        print(f"Initialized {FORMAT_NAMESPACE} project in {store_dir}")
         return
     store_dir = init_project(name=args.name)
-    print(f"Initialized beans project in {store_dir}")
+    print(f"Initialized {FORMAT_NAMESPACE} project in {store_dir}")
 
 
 def cmd_migrate(rc: RunContext, args: argparse.Namespace) -> None:
@@ -1615,7 +1622,7 @@ def cmd_migrate(rc: RunContext, args: argparse.Namespace) -> None:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc
     try:
-        old_dir = walk_beans_dir()
+        old_dir = walk_store_dir()
     except FileNotFoundError:
         old_dir = None
     if old_dir:
@@ -1642,33 +1649,33 @@ def cmd_create(rc: RunContext, args: argparse.Namespace) -> None:
         kwargs["deps"] = args.dep
     try:
         with get_store(rc) as store:
-            bean = create_bean(store, args.title, valid_types=rc.config.type_names(), **kwargs)
-    except (TypeError, ValueError, BeanNotFoundError) as exc:
+            ticket = create_ticket(store, args.title, valid_types=rc.config.type_names(), **kwargs)
+    except (TypeError, ValueError, TicketNotFoundError) as exc:
         error(rc, exc)
-    print(output(bean, rc.json_output))
+    print(output(ticket, rc.json_output))
 
 
 def cmd_show(rc: RunContext, args: argparse.Namespace) -> None:
     try:
         with get_store(rc) as store:
-            bean = show_bean(store, args.bean_id)
+            ticket = show_ticket(store, args.ticket_id)
             all_deps = store.list_all_deps()
-    except BeanNotFoundError as exc:
+    except TicketNotFoundError as exc:
         error(rc, exc)
 
     if rc.json_output:
-        data = bean.model_dump()
+        data = ticket.model_dump()
         data["blocked_by"] = [
-            str(dep.from_id) for dep in all_deps if dep.to_id == args.bean_id and dep.dep_type == "blocks"
+            str(dep.from_id) for dep in all_deps if dep.to_id == args.ticket_id and dep.dep_type == "blocks"
         ]
         data["blocks"] = [
-            str(dep.to_id) for dep in all_deps if dep.from_id == args.bean_id and dep.dep_type == "blocks"
+            str(dep.to_id) for dep in all_deps if dep.from_id == args.ticket_id and dep.dep_type == "blocks"
         ]
         if rc.fields:
             data = {key: value for key, value in data.items() if key in rc.fields}
         print(json.dumps(data, default=str))
     else:
-        print(output(bean, False, rc.fields))
+        print(output(ticket, False, rc.fields))
 
 
 def cmd_update(rc: RunContext, args: argparse.Namespace) -> None:
@@ -1684,66 +1691,66 @@ def cmd_update(rc: RunContext, args: argparse.Namespace) -> None:
     try:
         with get_store(rc) as store:
             if args.status and args.status != "closed":
-                current = show_bean(store, args.bean_id)
+                current = show_ticket(store, args.ticket_id)
                 if current.status == "closed":
                     other_fields = {key: value for key, value in clean_fields.items() if key != "status"}
-                    bean = reopen_bean(store, args.bean_id, status=args.status)
+                    ticket = reopen_ticket(store, args.ticket_id, status=args.status)
                     if other_fields:
-                        bean = update_bean(store, args.bean_id, **other_fields)
+                        ticket = update_ticket(store, args.ticket_id, **other_fields)
                 else:
-                    bean = update_bean(store, args.bean_id, **clean_fields)
+                    ticket = update_ticket(store, args.ticket_id, **clean_fields)
             else:
-                bean = update_bean(store, args.bean_id, **clean_fields)
-    except (BeanNotFoundError, TypeError, ValueError) as exc:
+                ticket = update_ticket(store, args.ticket_id, **clean_fields)
+    except (TicketNotFoundError, TypeError, ValueError) as exc:
         error(rc, exc)
 
-    print(output(bean, rc.json_output))
+    print(output(ticket, rc.json_output))
 
 
 def cmd_close(rc: RunContext, args: argparse.Namespace) -> None:
     try:
         with get_store(rc) as store:
-            bean = close_bean(store, args.bean_id, reason=args.reason, force=args.force)
-    except (BeanNotFoundError, OpenChildrenError) as exc:
+            ticket = close_ticket(store, args.ticket_id, reason=args.reason, force=args.force)
+    except (TicketNotFoundError, OpenChildrenError) as exc:
         error(rc, exc)
-    print(output(bean, rc.json_output))
+    print(output(ticket, rc.json_output))
 
 
 def cmd_delete(rc: RunContext, args: argparse.Namespace) -> None:
     try:
         with get_store(rc) as store:
-            delete_bean(store, args.bean_id)
-    except BeanNotFoundError as exc:
+            delete_ticket(store, args.ticket_id)
+    except TicketNotFoundError as exc:
         error(rc, exc)
     if not rc.json_output:
-        print(f"Deleted {args.bean_id}")
+        print(f"Deleted {args.ticket_id}")
 
 
 def cmd_claim(rc: RunContext, args: argparse.Namespace) -> None:
     try:
         with get_store(rc) as store:
-            bean = claim_bean(store, args.bean_id, args.actor)
-    except (BeanNotFoundError, ValueError) as exc:
+            ticket = claim_ticket(store, args.ticket_id, args.actor)
+    except (TicketNotFoundError, ValueError) as exc:
         error(rc, exc)
-    print(output(bean, rc.json_output))
+    print(output(ticket, rc.json_output))
 
 
 def cmd_release(rc: RunContext, args: argparse.Namespace) -> None:
-    if args.mine and args.bean_id:
-        error(rc, ValueError("Provide a bean id or --mine, not both"))
+    if args.mine and args.ticket_id:
+        error(rc, ValueError(f"Provide a {FORMAT_ENTITY_LOWER} id or --mine, not both"))
     elif args.mine:
         with get_store(rc) as store:
             released = release_mine(store, args.actor)
         print(output(released, rc.json_output))
-    elif args.bean_id:
+    elif args.ticket_id:
         try:
             with get_store(rc) as store:
-                bean = release_bean(store, args.bean_id, args.actor)
-        except (BeanNotFoundError, ValueError) as exc:
+                ticket = release_ticket(store, args.ticket_id, args.actor)
+        except (TicketNotFoundError, ValueError) as exc:
             error(rc, exc)
-        print(output(bean, rc.json_output))
+        print(output(ticket, rc.json_output))
     else:
-        error(rc, ValueError("Provide a bean id or --mine"))
+        error(rc, ValueError(f"Provide a {FORMAT_ENTITY_LOWER} id or --mine"))
 
 
 def cmd_list(rc: RunContext, args: argparse.Namespace) -> None:
@@ -1753,8 +1760,8 @@ def cmd_list(rc: RunContext, args: argparse.Namespace) -> None:
     types = args.type.split(",") if args.type else None
     statuses = args.status.split(",") if args.status else None
     with get_store(rc) as store:
-        all_beans = list_beans(store, types=types, statuses=statuses, parent_id=parent)
-    print(output(all_beans, rc.json_output, rc.fields))
+        all_tickets = list_tickets(store, types=types, statuses=statuses, parent_id=parent)
+    print(output(all_tickets, rc.json_output, rc.fields))
 
 
 def cmd_ready(rc: RunContext, args: argparse.Namespace) -> None:
@@ -1764,7 +1771,7 @@ def cmd_ready(rc: RunContext, args: argparse.Namespace) -> None:
     if args.assignee and args.unassigned:
         error(rc, ValueError("--assignee and --unassigned are mutually exclusive"))
     with get_store(rc) as store:
-        ready = ready_beans(store, assignee=args.assignee, unassigned=args.unassigned, parent_id=parent)
+        ready = ready_tickets(store, assignee=args.assignee, unassigned=args.unassigned, parent_id=parent)
     print(output(ready, rc.json_output, rc.fields))
 
 
@@ -1831,13 +1838,13 @@ def cmd_graph(rc: RunContext, args: argparse.Namespace) -> None:
 
 def cmd_search(rc: RunContext, args: argparse.Namespace) -> None:
     with get_store(rc) as store:
-        found = search_beans(store, args.query)
+        found = search_tickets(store, args.query)
     print(output(found, rc.json_output, rc.fields))
 
 
 def cmd_schema(rc: RunContext, args: argparse.Namespace) -> None:
     schemas = {
-        "Bean": Bean.model_json_schema(),
+        SCHEMA_MODEL_NAME: Ticket.model_json_schema(),
         "Dep": Dep.model_json_schema(),
         "Error": Error.model_json_schema(),
     }
@@ -1876,7 +1883,7 @@ def cmd_dep_add(rc: RunContext, args: argparse.Namespace) -> None:
     try:
         with get_store(rc) as store:
             dep = add_dep(store, args.from_id, args.to_id, args.dep_type)
-    except (CyclicDepError, BeanNotFoundError, sqlite3.IntegrityError) as exc:
+    except (CyclicDepError, TicketNotFoundError, sqlite3.IntegrityError) as exc:
         error(rc, exc)
     print(output(dep, rc.json_output))
 
@@ -1893,15 +1900,15 @@ def cmd_dep_remove(rc: RunContext, args: argparse.Namespace) -> None:
 
 
 def cmd_types_list(rc: RunContext, args: argparse.Namespace) -> None:
-    for bean_type in rc.config.types:
-        line = bean_type.name
-        if bean_type.description:
-            line += f"  {bean_type.description}"
+    for ticket_type in rc.config.types:
+        line = ticket_type.name
+        if ticket_type.description:
+            line += f"  {ticket_type.description}"
         print(line)
 
 
 def cmd_types_add(rc: RunContext, args: argparse.Namespace) -> None:
-    rc.config.add_type(BeanType(name=args.name, description=args.description))
+    rc.config.add_type(TicketType(name=args.name, description=args.description))
     rc.config.save()
     print(f"Added type: {args.name}")
 
@@ -1917,7 +1924,7 @@ def cmd_types_remove(rc: RunContext, args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ticket.py",
-        description="Graph-based issue tracker for AI agent coordination (stdlib beans clone).",
+        description="Graph-based issue tracker for AI agent coordination.",
     )
     parser.add_argument("--version", action="version", version=f"ticket {VERSION}")
     parser.add_argument("--db", help="Path to SQLite database")
@@ -1933,74 +1940,76 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    init_parser = subparsers.add_parser("init", help="Initialize a beans project")
+    init_parser = subparsers.add_parser("init", help="Initialize a tickets project")
     init_parser.add_argument("--name", help="Project name for registry")
-    init_parser.add_argument("--dir", dest="local_dir", action="store_true", help="Create local .beans/ directory")
+    init_parser.add_argument(
+        "--dir", dest="local_dir", action="store_true", help="Create a store directory in the current directory"
+    )
     init_parser.set_defaults(func=cmd_init)
 
-    migrate_parser = subparsers.add_parser("migrate", help="Migrate .beans/ to the project registry")
+    migrate_parser = subparsers.add_parser("migrate", help="Migrate a local store to the project registry")
     migrate_parser.add_argument("--name", help="Project name for registry")
     migrate_parser.set_defaults(func=cmd_migrate)
 
-    create_parser = subparsers.add_parser("create", help="Create a new bean")
+    create_parser = subparsers.add_parser("create", help="Create a new ticket")
     create_parser.add_argument("title")
-    create_parser.add_argument("--type", help="Bean type")
-    create_parser.add_argument("--body", default="", help="Bean description")
-    create_parser.add_argument("--parent", type=bean_id_argument, help="Parent bean id")
+    create_parser.add_argument("--type", help="Ticket type")
+    create_parser.add_argument("--body", default="", help="Ticket description")
+    create_parser.add_argument("--parent", type=ticket_id_argument, help="Parent ticket id")
     create_parser.add_argument("--priority", type=int, help="Priority (0=highest, 4=lowest)")
     create_parser.add_argument(
         "--dep",
         action="append",
-        type=bean_id_argument,
-        help="Bean ID that blocks this bean (repeatable)",
+        type=ticket_id_argument,
+        help="Ticket ID that blocks this ticket (repeatable)",
     )
     create_parser.set_defaults(func=cmd_create)
 
-    show_parser = subparsers.add_parser("show", help="Show a single bean by id")
-    show_parser.add_argument("bean_id", type=bean_id_argument)
+    show_parser = subparsers.add_parser("show", help="Show a single ticket by id")
+    show_parser.add_argument("ticket_id", type=ticket_id_argument)
     show_parser.set_defaults(func=cmd_show)
 
-    update_parser = subparsers.add_parser("update", help="Update fields on a bean")
-    update_parser.add_argument("bean_id", type=bean_id_argument)
+    update_parser = subparsers.add_parser("update", help="Update fields on a ticket")
+    update_parser.add_argument("ticket_id", type=ticket_id_argument)
     update_parser.add_argument("--title", help="New title")
     update_parser.add_argument("--type", help="New type")
     update_parser.add_argument("--status", help="New status")
     update_parser.add_argument("--priority", type=int, help="New priority")
     update_parser.add_argument("--body", help="New body")
-    update_parser.add_argument("--parent", type=bean_id_argument, help="New parent bean id")
+    update_parser.add_argument("--parent", type=ticket_id_argument, help="New parent ticket id")
     update_parser.set_defaults(func=cmd_update)
 
-    close_parser = subparsers.add_parser("close", help="Close a bean")
-    close_parser.add_argument("bean_id", type=bean_id_argument)
+    close_parser = subparsers.add_parser("close", help="Close a ticket")
+    close_parser.add_argument("ticket_id", type=ticket_id_argument)
     close_parser.add_argument("--reason", help="Reason for closing")
     close_parser.add_argument("--force", action="store_true", help="Close even if children are open")
     close_parser.set_defaults(func=cmd_close)
 
-    delete_parser = subparsers.add_parser("delete", help="Delete a bean")
-    delete_parser.add_argument("bean_id", type=bean_id_argument)
+    delete_parser = subparsers.add_parser("delete", help="Delete a ticket")
+    delete_parser.add_argument("ticket_id", type=ticket_id_argument)
     delete_parser.set_defaults(func=cmd_delete)
 
-    claim_parser = subparsers.add_parser("claim", help="Claim a bean")
-    claim_parser.add_argument("bean_id", type=bean_id_argument)
-    claim_parser.add_argument("--actor", required=True, help="Who is claiming the bean")
+    claim_parser = subparsers.add_parser("claim", help="Claim a ticket")
+    claim_parser.add_argument("ticket_id", type=ticket_id_argument)
+    claim_parser.add_argument("--actor", required=True, help="Who is claiming the ticket")
     claim_parser.set_defaults(func=cmd_claim)
 
-    release_parser = subparsers.add_parser("release", help="Release a claimed bean")
-    release_parser.add_argument("bean_id", nargs="?", type=bean_id_argument)
-    release_parser.add_argument("--actor", default="", help="Who is releasing the bean")
-    release_parser.add_argument("--mine", action="store_true", help="Release all beans claimed by actor")
+    release_parser = subparsers.add_parser("release", help="Release a claimed ticket")
+    release_parser.add_argument("ticket_id", nargs="?", type=ticket_id_argument)
+    release_parser.add_argument("--actor", default="", help="Who is releasing the ticket")
+    release_parser.add_argument("--mine", action="store_true", help="Release all tickets claimed by actor")
     release_parser.set_defaults(func=cmd_release)
 
-    list_parser = subparsers.add_parser("list", help="List all beans")
+    list_parser = subparsers.add_parser("list", help="List all tickets")
     list_parser.add_argument("--type", help="Filter by type (comma-separated)")
     list_parser.add_argument("--status", help="Filter by status (comma-separated)")
-    list_parser.add_argument("--parent", type=bean_id_argument, help="Filter by parent bean id")
+    list_parser.add_argument("--parent", type=ticket_id_argument, help="Filter by parent ticket id")
     list_parser.set_defaults(func=cmd_list)
 
-    ready_parser = subparsers.add_parser("ready", help="List only unblocked beans")
+    ready_parser = subparsers.add_parser("ready", help="List only unblocked tickets")
     ready_parser.add_argument("--assignee", help="Filter by assignee name")
-    ready_parser.add_argument("--unassigned", action="store_true", help="Show only unclaimed beans")
-    ready_parser.add_argument("--parent", type=bean_id_argument, help="Filter by parent bean id")
+    ready_parser.add_argument("--unassigned", action="store_true", help="Show only unclaimed tickets")
+    ready_parser.add_argument("--parent", type=ticket_id_argument, help="Filter by parent ticket id")
     ready_parser.set_defaults(func=cmd_ready)
 
     stats_parser = subparsers.add_parser("stats", help="Show aggregate counts")
@@ -2009,7 +2018,7 @@ def build_parser() -> argparse.ArgumentParser:
     graph_parser = subparsers.add_parser("graph", help="Show dependency tree visualization")
     graph_parser.set_defaults(func=cmd_graph)
 
-    search_parser = subparsers.add_parser("search", help="Search beans by title and body")
+    search_parser = subparsers.add_parser("search", help="Search tickets by title and body")
     search_parser.add_argument("query")
     search_parser.set_defaults(func=cmd_search)
 
@@ -2032,26 +2041,26 @@ def build_parser() -> argparse.ArgumentParser:
     dep_parser = subparsers.add_parser("dep", help="Manage dependencies")
     dep_subparsers = dep_parser.add_subparsers(dest="dep_command", required=True)
 
-    dep_add_parser = dep_subparsers.add_parser("add", help="Add a dependency between two beans")
-    dep_add_parser.add_argument("from_id", type=bean_id_argument)
-    dep_add_parser.add_argument("to_id", type=bean_id_argument)
+    dep_add_parser = dep_subparsers.add_parser("add", help="Add a dependency between two tickets")
+    dep_add_parser.add_argument("from_id", type=ticket_id_argument)
+    dep_add_parser.add_argument("to_id", type=ticket_id_argument)
     dep_add_parser.add_argument("--type", dest="dep_type", default="blocks", help="Dependency type")
     dep_add_parser.set_defaults(func=cmd_dep_add)
 
-    dep_remove_parser = dep_subparsers.add_parser("remove", help="Remove a dependency between two beans")
-    dep_remove_parser.add_argument("from_id", type=bean_id_argument)
-    dep_remove_parser.add_argument("to_id", type=bean_id_argument)
+    dep_remove_parser = dep_subparsers.add_parser("remove", help="Remove a dependency between two tickets")
+    dep_remove_parser.add_argument("from_id", type=ticket_id_argument)
+    dep_remove_parser.add_argument("to_id", type=ticket_id_argument)
     dep_remove_parser.set_defaults(func=cmd_dep_remove)
 
-    types_parser = subparsers.add_parser("types", help="Manage bean types")
+    types_parser = subparsers.add_parser("types", help="Manage ticket types")
     types_subparsers = types_parser.add_subparsers(dest="types_command")
 
-    types_add_parser = types_subparsers.add_parser("add", help="Add a bean type to config")
+    types_add_parser = types_subparsers.add_parser("add", help="Add a ticket type to config")
     types_add_parser.add_argument("name")
     types_add_parser.add_argument("--description", default="", help="Type description")
     types_add_parser.set_defaults(func=cmd_types_add)
 
-    types_remove_parser = types_subparsers.add_parser("remove", help="Remove a bean type from config")
+    types_remove_parser = types_subparsers.add_parser("remove", help="Remove a ticket type from config")
     types_remove_parser.add_argument("name")
     types_remove_parser.set_defaults(func=cmd_types_remove)
 

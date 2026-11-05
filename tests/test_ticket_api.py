@@ -8,9 +8,6 @@ import pytest
 
 import ticket
 from ticket import (
-    Bean,
-    BeanId,
-    BeanNotFoundError,
     Config,
     CyclicDepError,
     Dep,
@@ -18,25 +15,28 @@ from ticket import (
     OpenChildrenError,
     Project,
     Store,
+    Ticket,
+    TicketId,
+    TicketNotFoundError,
     add_dep,
-    claim_bean,
-    close_bean,
-    create_bean,
-    delete_bean,
+    claim_ticket,
+    close_ticket,
+    create_ticket,
+    delete_ticket,
     graph,
     init_project,
     init_project_local,
-    list_beans,
     list_deps,
+    list_tickets,
     normalize_git_remote,
-    ready_beans,
-    release_bean,
+    ready_tickets,
     release_mine,
+    release_ticket,
     remove_dep,
-    reopen_bean,
-    search_beans,
+    reopen_ticket,
+    search_tickets,
     stats,
-    update_bean,
+    update_ticket,
 )
 
 
@@ -46,23 +46,23 @@ def store():
         yield session
 
 
-class TestBeanId:
+class TestTicketId:
     def test_generate_is_type_prefixed(self):
-        bean_id = BeanId.generate("epic")
+        bean_id = TicketId.generate("epic")
         assert re.fullmatch(r"epic-[0-9a-f]{8}", bean_id)
         assert bean_id.type_prefix == "epic"
 
     def test_rejects_invalid_values(self):
         with pytest.raises(ValueError, match="Invalid bean id"):
-            BeanId("not-a-bean-id")
+            TicketId("not-a-bean-id")
 
     def test_accepts_any_lowercase_prefix(self):
-        assert BeanId("spike-deadbeef").type_prefix == "spike"
+        assert TicketId("spike-deadbeef").type_prefix == "spike"
 
 
-class TestBeanModel:
+class TestTicketModel:
     def test_defaults_and_json_shape(self):
-        bean = Bean(id="bean-00000000", title="Fix auth", created_at=datetime(2025, 1, 1, tzinfo=UTC))
+        bean = Ticket(id="bean-00000000", title="Fix auth", created_at=datetime(2025, 1, 1, tzinfo=UTC))
         assert bean.model_dump() == {
             "id": "bean-00000000",
             "title": "Fix auth",
@@ -82,19 +82,19 @@ class TestBeanModel:
 
     def test_validates_status_and_priority(self):
         with pytest.raises(ValueError):
-            Bean(title="Bad", status="deleted")
+            Ticket(title="Bad", status="deleted")
         with pytest.raises(ValueError):
-            Bean(title="Bad", priority=5)
+            Ticket(title="Bad", priority=5)
 
     def test_parses_iso_timestamps(self):
-        bean = Bean(title="Fix", created_at="2025-01-01T00:00:00Z", closed_at="2025-01-02T00:00:00+00:00")
+        bean = Ticket(title="Fix", created_at="2025-01-01T00:00:00Z", closed_at="2025-01-02T00:00:00+00:00")
         assert bean.created_at == datetime(2025, 1, 1, tzinfo=UTC)
         assert bean.closed_at == datetime(2025, 1, 2, tzinfo=UTC)
 
 
 class TestStore:
     def test_roundtrip_preserves_fields(self, store):
-        bean = Bean(
+        bean = Ticket(
             title="Full bean",
             type="epic",
             status="in_progress",
@@ -109,17 +109,17 @@ class TestStore:
         assert store.get(bean.id) == bean
 
     def test_update_and_delete(self, store):
-        bean = store.create(Bean(title="Old title"))
+        bean = store.create(Ticket(title="Old title"))
         assert store.update(bean.id, title="New title") == 1
         assert store.get(bean.id).title == "New title"
         assert store.delete(bean.id) == 1
-        with pytest.raises(BeanNotFoundError):
+        with pytest.raises(TicketNotFoundError):
             store.get(bean.id)
 
     def test_ready_respects_transitive_blocks_and_children(self, store):
-        first = store.create(Bean(title="First"))
-        second = store.create(Bean(title="Second"))
-        third = store.create(Bean(title="Third"))
+        first = store.create(Ticket(title="First"))
+        second = store.create(Ticket(title="Second"))
+        third = store.create(Ticket(title="Third"))
         store.add_dep(Dep(from_id=first.id, to_id=second.id))
         store.add_dep(Dep(from_id=second.id, to_id=third.id))
 
@@ -127,12 +127,12 @@ class TestStore:
         store.update(first.id, status="closed")
         assert store.ready() == [second]
 
-        parent = store.create(Bean(title="Parent"))
-        store.create(Bean(title="Child", parent_id=parent.id))
+        parent = store.create(Ticket(title="Parent"))
+        store.create(Ticket(title="Child", parent_id=parent.id))
         assert parent not in store.ready()
 
     def test_journal_export_and_replay(self, store):
-        bean = store.create(Bean(title="Fix auth"))
+        bean = store.create(Ticket(title="Fix auth"))
         store.update(bean.id, title="Updated")
         lines = list(store.journal.export())
         assert [entry["action"] for entry in map(ticket.json.loads, lines)] == ["create", "update"]
@@ -144,74 +144,74 @@ class TestStore:
 
 class TestApi:
     def test_create_show_update_and_close(self, store):
-        bean = create_bean(store, "Fix auth", body="Details")
+        bean = create_ticket(store, "Fix auth", body="Details")
         assert bean.id.startswith("task-")
         assert bean.body == "Details"
 
-        updated = update_bean(store, bean.id, title="New title", priority=0)
+        updated = update_ticket(store, bean.id, title="New title", priority=0)
         assert updated.title == "New title"
         assert updated.priority == 0
 
-        closed = close_bean(store, bean.id, reason="Done")
+        closed = close_ticket(store, bean.id, reason="Done")
         assert closed.status == "closed"
         assert closed.close_reason == "Done"
         assert closed.closed_at is not None
 
-        reopened = reopen_bean(store, bean.id)
+        reopened = reopen_ticket(store, bean.id)
         assert reopened.status == "open"
         assert reopened.closed_at is None
         assert reopened.close_reason is None
 
     def test_create_with_deps_and_parent_validation(self, store):
-        blocker = create_bean(store, "Blocker")
-        blocked = create_bean(store, "Blocked", deps=[blocker.id])
-        assert blocked not in ready_beans(store)
-        close_bean(store, blocker.id)
-        assert blocked in ready_beans(store)
+        blocker = create_ticket(store, "Blocker")
+        blocked = create_ticket(store, "Blocked", deps=[blocker.id])
+        assert blocked not in ready_tickets(store)
+        close_ticket(store, blocker.id)
+        assert blocked in ready_tickets(store)
 
-        with pytest.raises(BeanNotFoundError, match="does not exist"):
-            create_bean(store, "Orphan", parent_id="bean-00000000")
+        with pytest.raises(TicketNotFoundError, match="does not exist"):
+            create_ticket(store, "Orphan", parent_id="bean-00000000")
 
     def test_create_validates_configured_types(self, store):
         with pytest.raises(ValueError, match="Unknown type: spike"):
-            create_bean(store, "Bad", type="spike", valid_types={"task", "bug", "epic"})
-        assert create_bean(store, "Any", type="spike").type == "spike"
+            create_ticket(store, "Bad", type="spike", valid_types={"task", "bug", "epic"})
+        assert create_ticket(store, "Any", type="spike").type == "spike"
 
     def test_close_children_guard(self, store):
-        parent = create_bean(store, "Epic")
-        create_bean(store, "Task", parent_id=parent.id)
+        parent = create_ticket(store, "Epic")
+        create_ticket(store, "Task", parent_id=parent.id)
         with pytest.raises(OpenChildrenError, match="1 open child remain"):
-            close_bean(store, parent.id)
-        assert close_bean(store, parent.id, force=True).status == "closed"
+            close_ticket(store, parent.id)
+        assert close_ticket(store, parent.id, force=True).status == "closed"
 
     def test_claim_release_and_release_mine(self, store):
-        first = create_bean(store, "Task A")
-        second = create_bean(store, "Task B")
-        assert claim_bean(store, first.id, "alice").assignee == "alice"
-        assert claim_bean(store, first.id, "alice") == claim_bean(store, first.id, "alice")
+        first = create_ticket(store, "Task A")
+        second = create_ticket(store, "Task B")
+        assert claim_ticket(store, first.id, "alice").assignee == "alice"
+        assert claim_ticket(store, first.id, "alice") == claim_ticket(store, first.id, "alice")
         with pytest.raises(ValueError, match="already claimed"):
-            claim_bean(store, first.id, "bob")
+            claim_ticket(store, first.id, "bob")
         with pytest.raises(ValueError, match="claimed by alice"):
-            release_bean(store, first.id, "bob")
+            release_ticket(store, first.id, "bob")
 
-        claim_bean(store, second.id, "alice")
+        claim_ticket(store, second.id, "alice")
         released = release_mine(store, "alice")
         assert len(released) == 2
         assert all(bean.assignee is None and bean.status == "open" for bean in released)
 
     def test_delete_returns_bean_and_removes_deps(self, store):
-        first = create_bean(store, "Task A")
-        second = create_bean(store, "Task B")
+        first = create_ticket(store, "Task A")
+        second = create_ticket(store, "Task B")
         add_dep(store, first.id, second.id)
-        assert delete_bean(store, first.id) == first
+        assert delete_ticket(store, first.id) == first
         assert list_deps(store, first.id) == []
-        with pytest.raises(BeanNotFoundError):
-            delete_bean(store, first.id)
+        with pytest.raises(TicketNotFoundError):
+            delete_ticket(store, first.id)
 
     def test_dependencies_detect_cycles(self, store):
-        first = create_bean(store, "Alpha")
-        second = create_bean(store, "Beta")
-        third = create_bean(store, "Gamma")
+        first = create_ticket(store, "Alpha")
+        second = create_ticket(store, "Beta")
+        third = create_ticket(store, "Gamma")
         add_dep(store, first.id, second.id)
         add_dep(store, second.id, third.id)
 
@@ -223,12 +223,12 @@ class TestApi:
             remove_dep(store, second.id, first.id)
 
     def test_filters_search_stats_and_graph(self, store):
-        first = create_bean(store, "Fix auth", type="bug", body="authentication")
-        second = create_bean(store, "Add tests", priority=0)
+        first = create_ticket(store, "Fix auth", type="bug", body="authentication")
+        second = create_ticket(store, "Add tests", priority=0)
         add_dep(store, first.id, second.id)
 
-        assert list_beans(store, types=["bug"]) == [first]
-        assert search_beans(store, "auth") == [first]
+        assert list_tickets(store, types=["bug"]) == [first]
+        assert search_tickets(store, "auth") == [first]
         assert stats(store)["by_type"] == {"bug": 1, "task": 1}
         graph_data = graph(store)
         assert len(graph_data["nodes"]) == 2
@@ -242,7 +242,7 @@ class TestConfigAndWorkspace:
             path=path,
             projects=[Project(name="app", identifier="github.com/me/app", store="/store/app")],
         )
-        config.add_type(ticket.BeanType(name="spike", description="Investigation"))
+        config.add_type(ticket.TicketType(name="spike", description="Investigation"))
         config.save()
 
         loaded = Config.from_path(path)
@@ -260,7 +260,7 @@ class TestConfigAndWorkspace:
 
         monkeypatch.delenv("MAGIC_BEANS_DIR", raising=False)
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        assert ticket.find_beans_dir(start=project) == beans_dir
+        assert ticket.find_store_dir(start=project) == beans_dir
 
     def test_init_project_registry(self, tmp_path):
         project = tmp_path / "myproject"

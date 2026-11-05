@@ -1,7 +1,7 @@
 [project]
 name = "ticket"
 version = "0.1.0"
-description = "Stdlib-only graph-based issue tracker compatible with magic-beans"
+description = "Stdlib-only graph-based issue tracker"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
