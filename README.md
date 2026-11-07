@@ -123,8 +123,7 @@ ticket.py graph
 ```
 
 - `create --dep` attaches blockers to the new ticket; repeat `--dep` as needed.
-- `list` and `ready` also honor the parent environment variable documented in
-  [Compatibility](#compatibility) when `--parent` is omitted.
+- `list` and `ready` also honor `TICKET_PARENT_ID` when `--parent` is omitted.
 - `ready --assignee` and `ready --unassigned` are mutually exclusive.
 - `stats` reports counts by status, type, and assignee.
 - `graph` prints a tree with parent/child nesting and blocker annotations.
@@ -222,9 +221,9 @@ Configuration and registered project data follow XDG conventions:
 
 | Path | Contents |
 | --- | --- |
-| `$XDG_CONFIG_HOME/beans/config.json` | Registered projects and ticket types |
-| `$XDG_DATA_HOME/beans/<project>/` | Registry store with the SQLite database, `AGENTS.md`, and `.gitignore` |
-| `.beans/` | Local store created by `init --dir` |
+| `$XDG_CONFIG_HOME/ticket/config.json` | Registered projects and ticket types |
+| `$XDG_DATA_HOME/ticket/<project>/` | Registry store with the SQLite database, `AGENTS.md`, and `.gitignore` |
+| `.ticket/` | Local store created by `init --dir` |
 
 `XDG_CONFIG_HOME` defaults to `~/.config` and `XDG_DATA_HOME` to
 `~/.local/share`. Each store contains the SQLite database, an `AGENTS.md`
@@ -268,28 +267,20 @@ Useful entry points include `Store`, `Ticket`, `Dep`, `Config`,
 `list_tickets`, `ready_tickets`, `search_tickets`, `stats`, `add_dep`,
 `remove_dep`, `list_deps`, and `graph`.
 
-## Compatibility
+## Inspiration and naming
 
-> **Developer note:** `ticket.py` is a drop-in, behavior-compatible
-> implementation of the [beans](https://github.com/henriquebastos/beans) CLI.
-> This is an implementation detail, not part of this project's vocabulary.
+`ticket.py` was inspired by the [beans](https://github.com/henriquebastos/beans)
+CLI, but it is not a drop-in replacement and does not aim for backwards or
+interoperable compatibility with it. It uses its own ticket vocabulary and
+filesystem layout:
 
-To remain interoperable with existing stores and scripts, the wire format and
-filesystem conventions intentionally retain their original names:
-
-| Item | Compatible value |
+| Item | Value |
 | --- | --- |
-| Local store directory | `.beans/` |
-| SQLite database | `beans.db` |
-| Config directory | `$XDG_CONFIG_HOME/beans/` |
-| Data directory | `$XDG_DATA_HOME/beans/` |
-| Store directory override | `MAGIC_BEANS_DIR` |
-| Default parent override | `MAGIC_BEANS_PARENT_ID` |
-| `schema` model keys | `Bean`, `Dep`, `Error` |
-| Journal field | `bean_id` |
-
-The command surface, options, output, exit codes, error messages, JSON field
-names, schema shapes, and database layout are unchanged. In particular, the
-`schema` command still uses `Bean` as the model key and the human-readable
-error text still says `Bean` where the original CLI does, because those values
-are part of the compatibility contract.
+| Local store directory | `.ticket/` |
+| SQLite database | `ticket.db` |
+| Config directory | `$XDG_CONFIG_HOME/ticket/` |
+| Data directory | `$XDG_DATA_HOME/ticket/` |
+| Store directory override | `TICKET_DIR` |
+| Default parent override | `TICKET_PARENT_ID` |
+| `schema` model keys | `Ticket`, `Dep`, `Error` |
+| Journal field | `ticket_id` |

@@ -48,13 +48,13 @@ def store():
 
 class TestTicketId:
     def test_generate_is_type_prefixed(self):
-        bean_id = TicketId.generate("epic")
-        assert re.fullmatch(r"epic-[0-9a-f]{8}", bean_id)
-        assert bean_id.type_prefix == "epic"
+        ticket_id = TicketId.generate("epic")
+        assert re.fullmatch(r"epic-[0-9a-f]{8}", ticket_id)
+        assert ticket_id.type_prefix == "epic"
 
     def test_rejects_invalid_values(self):
-        with pytest.raises(ValueError, match="Invalid bean id"):
-            TicketId("not-a-bean-id")
+        with pytest.raises(ValueError, match="Invalid ticket id"):
+            TicketId("not-a-ticket-id")
 
     def test_accepts_any_lowercase_prefix(self):
         assert TicketId("spike-deadbeef").type_prefix == "spike"
@@ -62,9 +62,9 @@ class TestTicketId:
 
 class TestTicketModel:
     def test_defaults_and_json_shape(self):
-        bean = Ticket(id="bean-00000000", title="Fix auth", created_at=datetime(2025, 1, 1, tzinfo=UTC))
-        assert bean.model_dump() == {
-            "id": "bean-00000000",
+        ticket = Ticket(id="ticket-00000000", title="Fix auth", created_at=datetime(2025, 1, 1, tzinfo=UTC))
+        assert ticket.model_dump() == {
+            "id": "ticket-00000000",
             "title": "Fix auth",
             "type": "task",
             "status": "open",
@@ -78,7 +78,7 @@ class TestTicketModel:
             "closed_at": None,
             "close_reason": None,
         }
-        assert '"created_at":"2025-01-01T00:00:00Z"' in bean.model_dump_json()
+        assert '"created_at":"2025-01-01T00:00:00Z"' in ticket.model_dump_json()
 
     def test_validates_status_and_priority(self):
         with pytest.raises(ValueError):
@@ -87,34 +87,34 @@ class TestTicketModel:
             Ticket(title="Bad", priority=5)
 
     def test_parses_iso_timestamps(self):
-        bean = Ticket(title="Fix", created_at="2025-01-01T00:00:00Z", closed_at="2025-01-02T00:00:00+00:00")
-        assert bean.created_at == datetime(2025, 1, 1, tzinfo=UTC)
-        assert bean.closed_at == datetime(2025, 1, 2, tzinfo=UTC)
+        ticket = Ticket(title="Fix", created_at="2025-01-01T00:00:00Z", closed_at="2025-01-02T00:00:00+00:00")
+        assert ticket.created_at == datetime(2025, 1, 1, tzinfo=UTC)
+        assert ticket.closed_at == datetime(2025, 1, 2, tzinfo=UTC)
 
 
 class TestStore:
     def test_roundtrip_preserves_fields(self, store):
-        bean = Ticket(
-            title="Full bean",
+        ticket = Ticket(
+            title="Full ticket",
             type="epic",
             status="in_progress",
             priority=0,
             body="Some details",
-            parent_id="bean-00000000",
+            parent_id="ticket-00000000",
             assignee="alice",
             created_by="bob",
             ref_id="GH-42",
         )
-        store.create(bean)
-        assert store.get(bean.id) == bean
+        store.create(ticket)
+        assert store.get(ticket.id) == ticket
 
     def test_update_and_delete(self, store):
-        bean = store.create(Ticket(title="Old title"))
-        assert store.update(bean.id, title="New title") == 1
-        assert store.get(bean.id).title == "New title"
-        assert store.delete(bean.id) == 1
+        ticket = store.create(Ticket(title="Old title"))
+        assert store.update(ticket.id, title="New title") == 1
+        assert store.get(ticket.id).title == "New title"
+        assert store.delete(ticket.id) == 1
         with pytest.raises(TicketNotFoundError):
-            store.get(bean.id)
+            store.get(ticket.id)
 
     def test_ready_respects_transitive_blocks_and_children(self, store):
         first = store.create(Ticket(title="First"))
@@ -132,32 +132,32 @@ class TestStore:
         assert parent not in store.ready()
 
     def test_journal_export_and_replay(self, store):
-        bean = store.create(Ticket(title="Fix auth"))
-        store.update(bean.id, title="Updated")
+        item = store.create(Ticket(title="Fix auth"))
+        store.update(item.id, title="Updated")
         lines = list(store.journal.export())
         assert [entry["action"] for entry in map(ticket.json.loads, lines)] == ["create", "update"]
 
         with Store(sqlite3.connect(":memory:")) as target:
             target.journal.replay(lines)
-            assert target.get(bean.id).title == "Updated"
+            assert target.get(item.id).title == "Updated"
 
 
 class TestApi:
     def test_create_show_update_and_close(self, store):
-        bean = create_ticket(store, "Fix auth", body="Details")
-        assert bean.id.startswith("task-")
-        assert bean.body == "Details"
+        ticket = create_ticket(store, "Fix auth", body="Details")
+        assert ticket.id.startswith("task-")
+        assert ticket.body == "Details"
 
-        updated = update_ticket(store, bean.id, title="New title", priority=0)
+        updated = update_ticket(store, ticket.id, title="New title", priority=0)
         assert updated.title == "New title"
         assert updated.priority == 0
 
-        closed = close_ticket(store, bean.id, reason="Done")
+        closed = close_ticket(store, ticket.id, reason="Done")
         assert closed.status == "closed"
         assert closed.close_reason == "Done"
         assert closed.closed_at is not None
 
-        reopened = reopen_ticket(store, bean.id)
+        reopened = reopen_ticket(store, ticket.id)
         assert reopened.status == "open"
         assert reopened.closed_at is None
         assert reopened.close_reason is None
@@ -170,7 +170,7 @@ class TestApi:
         assert blocked in ready_tickets(store)
 
         with pytest.raises(TicketNotFoundError, match="does not exist"):
-            create_ticket(store, "Orphan", parent_id="bean-00000000")
+            create_ticket(store, "Orphan", parent_id="ticket-00000000")
 
     def test_create_validates_configured_types(self, store):
         with pytest.raises(ValueError, match="Unknown type: spike"):
@@ -197,9 +197,9 @@ class TestApi:
         claim_ticket(store, second.id, "alice")
         released = release_mine(store, "alice")
         assert len(released) == 2
-        assert all(bean.assignee is None and bean.status == "open" for bean in released)
+        assert all(ticket.assignee is None and ticket.status == "open" for ticket in released)
 
-    def test_delete_returns_bean_and_removes_deps(self, store):
+    def test_delete_returns_ticket_and_removes_deps(self, store):
         first = create_ticket(store, "Task A")
         second = create_ticket(store, "Task B")
         add_dep(store, first.id, second.id)
@@ -253,14 +253,14 @@ class TestConfigAndWorkspace:
     def test_init_project_local_and_discovery(self, tmp_path, monkeypatch):
         project = tmp_path / "myproject"
         project.mkdir()
-        beans_dir = init_project_local(cwd=project)
-        assert beans_dir == project / ".beans"
-        assert (beans_dir / "beans.db").exists()
-        assert (beans_dir / ".gitignore").read_text() == ticket.GITIGNORE_CONTENT
+        ticket_dir = init_project_local(cwd=project)
+        assert ticket_dir == project / ".ticket"
+        assert (ticket_dir / "ticket.db").exists()
+        assert (ticket_dir / ".gitignore").read_text() == ticket.GITIGNORE_CONTENT
 
-        monkeypatch.delenv("MAGIC_BEANS_DIR", raising=False)
+        monkeypatch.delenv("TICKET_DIR", raising=False)
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-        assert ticket.find_store_dir(start=project) == beans_dir
+        assert ticket.find_store_dir(start=project) == ticket_dir
 
     def test_init_project_registry(self, tmp_path):
         project = tmp_path / "myproject"
@@ -268,10 +268,10 @@ class TestConfigAndWorkspace:
         config_file = tmp_path / "config" / "config.json"
         store_dir = init_project(cwd=project, name="myblog", data_base=tmp_path / "data", config_file=config_file)
 
-        assert (store_dir / "beans.db").exists()
+        assert (store_dir / "ticket.db").exists()
         config = Config.from_path(config_file)
         assert config.find_by_name("myblog") is not None
-        assert not (project / ".beans").exists()
+        assert not (project / ".ticket").exists()
 
     def test_normalize_git_remote(self):
         assert normalize_git_remote("git@github.com:org/repo.git") == "github.com/org/repo"

@@ -169,14 +169,13 @@ from typing import Any, ClassVar, Literal
 
 VERSION = "0.1.0"
 
-# The storage format and wire protocol use fixed names. They are assembled from
-# fragments so this implementation's vocabulary stays independent of the format
-# while remaining byte-for-byte compatible with existing stores and clients.
-FORMAT_NAMESPACE = "be" "ans"
-FORMAT_ENTITY = "Be" "an"
+# Storage and wire format names. These are the project's own conventions; no
+# compatibility with other issue trackers is implied.
+FORMAT_NAMESPACE = "ticket"
+FORMAT_ENTITY = "Ticket"
 FORMAT_ENTITY_LOWER = FORMAT_ENTITY.lower()
 FORMAT_ID_FIELD = f"{FORMAT_ENTITY_LOWER}_id"
-TICKETS_TABLE = FORMAT_NAMESPACE
+TICKETS_TABLE = "tickets"
 SCHEMA_MODEL_NAME = FORMAT_ENTITY
 
 # ---------------------------------------------------------------------------
@@ -763,9 +762,7 @@ class JournalStore:
         self.conn = conn
 
     def export(self):
-        cursor = self.conn.execute(
-            f"SELECT action, {FORMAT_ID_FIELD}, snapshot, created_at FROM journal ORDER BY id"
-        )
+        cursor = self.conn.execute(f"SELECT action, {FORMAT_ID_FIELD}, snapshot, created_at FROM journal ORDER BY id")
         for action, ticket_id, snapshot, created_at in cursor:
             entry = {
                 "action": action,
@@ -1241,8 +1238,8 @@ def data_dir(data_dir_name: str = DATA_DIR, default_xdg: str = DEFAULT_XDG_DATA)
 # ---------------------------------------------------------------------------
 
 STORE_DIRNAME = f".{FORMAT_NAMESPACE}"
-STORE_DIR_ENV = f"MAGIC_{FORMAT_NAMESPACE.upper()}_DIR"
-PARENT_ENV = f"MAGIC_{FORMAT_NAMESPACE.upper()}_PARENT_ID"
+STORE_DIR_ENV = f"{FORMAT_NAMESPACE.upper()}_DIR"
+PARENT_ENV = f"{FORMAT_NAMESPACE.upper()}_PARENT_ID"
 DB_NAME = f"{FORMAT_NAMESPACE}.db"
 AGENTS_MD = "AGENTS.md"
 GITIGNORE = ".gitignore"
